@@ -1,13 +1,19 @@
 #!/bin/bash
 
-timestamp="$( date +%s%N )";
+generate_ipv6() {
+  timestamp="$(date +%s%N)"
+  uniqueid="$(cat /etc/machine-id)"
+  
+  hash=$(printf "$timestamp$uniqueid" | sha1sum)
+  address=$(printf "$hash" | cut -c 1-32)
+  
+  formatted=$(awk 'BEGIN{OFS=FS=":"}{gsub(/..../,"&:")}1' <<< "$address")
 
-uniqueid="$( cat /etc/machine-id )";
+  prefix="fd00:1abc:"
 
-hashcode=$( printf ${timestamp}${uniqueid} | sha1sum )
+  echo "$prefix$formatted"
+}
 
-output="$( printf ${hashcode} | cut -c 31- )"
+address=$(generate_ipv6)
 
-ipv6_formated="$( awk 'BEGIN{OFS=FS=","}{gsub(/..../,"&:",$2)}1' )"
-
-printf "Unique IPv6 Address Prefix based on 'machine-id' and current stimestamp:\n $p::/64" $ipv6_formated
+echo "Unique IPv6 Address based on 'machine-id' and current timestamp: $address"
