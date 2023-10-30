@@ -123,7 +123,7 @@ docker_swarm_networks(){
     docker network create --driver "overlay" --opt "encrypted" --scope "swarm" --subnet "172.27.2.0/24" --gateway "172.27.2.254" --attachable "reverse_proxy"
     echo "The \`docker_socket\`, \`external_edge\`, and \`reverse_proxy\` docker overlay networks exist or were created."; echo
 }
-alias dwn="docker_compose_networks"
+alias dwn="docker_swarm_networks"
 
 docker_swarm_start(){
     if [[ -f "$docker_dkswarm/$1/compose.yml" ]]; then
