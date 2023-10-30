@@ -1,0 +1,152 @@
+#!/bin/bash
+
+################################################################################
+## docker functions
+# docker user and group id
+export dk_usr="docker"
+export dk_grp="docker"
+dk_uid=$(id -u "$dk_usr") # docker UID (1001)
+export dk_uid
+dk_gid=$(id -g "$dk_usr") # docker GID (994)
+export dk_gid
+
+# folder and file permission scopes
+export dk_apd=660 # rw-rw----
+export dk_cfg=664 # rw-rw-r--
+export dk_dir=775 # rwxrwxr-x
+
+# docker directory structure
+docker_dir="$HOME/docker"
+docker_appdata="$docker_dir/appdata"
+docker_dkswarm="$docker_dir/dkswarm"
+docker_compose="$docker_dir/compose"
+docker_secrets="$docker_dir/secrets"
+
+# check if sudo is needed for some commands used in these custom docker functions
+if [[ $(id -u) -ne 0 ]]; then var_sudo="$(command -v sudo 2>/dev/null) "; else unset var_sudo; fi;
+
+# create docker directory structure and .docker.env if they don't exist
+if [[ ! -d "$docker_dir" ]]; then "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_dir" -d "$docker_dir"/{appdata,compose,dkswarm,secrets}; fi
+if [[ ! -f "$docker_dir/.docker.env" ]]; then "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_apd" /dev/null "$docker_compose/.docker.env"; fi
+
+appdata(){ cd "$docker_appdata/$1" || echo "No appdata directory for the \`$1\` container exists."; return; }
+compose(){ cd "$docker_compose/$1" || echo "No compose directory for the \`$1\` container exists."; return; }
+dkswarm(){ cd "$docker_dkswarm/$1" || echo "No dkswarm directory for the \`$1\` container exists."; return; }
+secrets(){ cd "$docker_secrets/$1" || echo "No secrets directory for the \`$1\` container exists."; return; }
+
+vpncheck(){ echo " Host IP: $(wget -qO- ifconfig.me)" && echo "Container IP: $(docker container exec -it "${*}" wget -qO- ipinfo.io)"; }
+ipcheck(){ echo "Container IP: $(docker container exec -it "${*}" curl ipinfo.io)"; }
+
+docker_list_containers(){
+    case "$1" in
+        "-a"|"--all")
+            docker container list --all --format "table {{.ID}}  {{.Names}}\t{{.Status}}\t{{.RunningFor}}\t{{.Image}}";;
+        "-l"|"--labels")
+            docker container list --no-trunc --format "table {{.Names}}\t{{.Status}}\t{{.Labels}}\t{{.Command}}";;
+        "-n"|"--networks")
+            docker container list --no-trunc --format "table {{.Names}}\t{{.Status}}\t{{.Networks}}\t{{.Ports}}";;
+        "-v"|"--volumes")
+            docker container list --no-trunc --format "table {{.Names}}\t{{.Status}}\t{{.LocalVolumes}}\t{{.Mounts}}";;
+        *)
+            docker container list --format "table {{.ID}}  {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Command}}";;
+    esac
+    }
+alias dlc="docker_list_containers"
+
+################################################################################
+## docker compose functions
+
+docker_compose_folders(){
+    if [[ -f "$docker_compose/$1/compose.yml" ]]; then echo "Docker compose config for \`$1\` already exists."; echo; return; fi
+    "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_dir" -d "$docker_dir"/{appdata,compose}/"$1"
+    "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_cfg" /dev/null "$docker_compose/$1/compose.yml"
+    if [[ ! -f "$docker_compose/$1/.env" ]]; then ln -s "$docker_dir/.docker.env" "$docker_compose/$1/.env"; fi
+    if [[ -f "$docker_compose/$1/compose.yml" ]]; then echo "Docker compose folders and files created for the \`$1\` application."; echo; fi
+    echo
+    }
+alias dcf='docker_compose_folders'
+
+docker_compose_edit(){ nano "$docker_compose/$1/compose.yml"; }
+alias dce="docker_compose_edit"
+
+docker_compose_networks(){
+    docker network create --driver "bridge" --opt "encrypted" --scope "local" --subnet "172.27.0.0/24" --gateway "172.27.0.254" --attachable "docker_socket"
+    docker network create --driver "bridge" --opt "encrypted" --scope "local" --subnet "172.27.1.0/24" --gateway "172.27.1.254" --attachable "external_edge"
+    docker network create --driver "bridge" --opt "encrypted" --scope "local" --subnet "172.27.2.0/24" --gateway "172.27.2.254" --attachable "reverse_proxy"
+    echo "The \`docker_socket\`, \`external_edge\`, and \`reverse_proxy\` docker bridge networks exist or were created."; echo
+}
+alias dcn="docker_compose_networks"
+
+docker_compose_start(){
+    if [[ -f "$docker_compose/$1/compose.yml" ]]; then
+        if [[ ! -f "$docker_compose/$1/.env" ]]; then ln -s "$docker_dir/.docker.env" "$docker_compose/$1/.env"; fi # symlinks .docker.env to .env
+        # install -o $dk_uid -g $dk_gid -m $dk_apd "$docker_dir/.docker.env" "$docker_compose/$1/.env" # copies .docker.env to .env
+        docker compose -f "$docker_compose/$1/compose.yml" up -d --remove-orphans;
+    else echo "No docker compose configuration file found for the \`$1\` application."; echo;
+    fi
+    echo
+    }
+alias dcu="docker_compose_start"
+
+docker_compose_stop(){
+    if [[ -f "$docker_compose/$1/compose.yml" && -f "$docker_compose/$1/.env" ]]
+    then docker compose -f "$docker_compose/$1/compose.yml" down;
+    else docker stop "$1" && docker container rm "$1"
+    fi
+    echo
+    }
+alias dcd="docker_compose_stop"
+
+docker_compose_bounce(){ docker_compose_stop "$1" && docker_compose_start "$1" ; }
+alias dcb="docker_compose_bounce"
+
+################################################################################
+## docker swarm functions
+
+docker_swarm_folders(){
+    if [[ ! -f $docker_dir/.docker.env ]]; then "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_apd" /dev/null "$docker_dkswarm/.docker.env"; fi
+    if [[ -f "$docker_dkswarm/$1/compose.yml" ]]; then echo "Docker swarm config for \`$1\` already exists."; return;
+    else
+        "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_dir" -d "$docker_dir"/{appdata,dkswarm}/"$1"
+        "${var_sudo}"install -o "$dk_uid" -g "$dk_gid" -m "$dk_cfg" /dev/null "$docker_dkswarm/$1/compose.yml"
+        [[ -f "$docker_dkswarm/$1/compose.yml" ]] && echo "Docker swarm folders and files created for the \`$1\` application."; echo;
+        echo
+    fi
+    }
+
+docker_swarm_edit(){ nano "$docker_dkswarm/$1/compose.yml"; }
+alias dwe="docker_swarm_edit"
+
+docker_swarm_networks(){
+    docker network create --driver "bridge" --opt "encrypted" --scope "swarm" --subnet "172.27.0.0/24" --gateway "172.27.0.254" --attachable "docker_socket"
+    docker network create --driver "overlay" --opt "encrypted" --scope "swarm" --subnet "172.27.1.0/24" --gateway "172.27.1.254" --attachable "external_edge"
+    docker network create --driver "overlay" --opt "encrypted" --scope "swarm" --subnet "172.27.2.0/24" --gateway "172.27.2.254" --attachable "reverse_proxy"
+    echo "The \`docker_socket\`, \`external_edge\`, and \`reverse_proxy\` docker overlay networks exist or were created."; echo
+}
+alias dwn="docker_compose_networks"
+
+docker_swarm_start(){
+    if [[ -f "$docker_dkswarm/$1/compose.yml" ]]; then
+        if [[ ! -f "$docker_dkswarm/$1/.env" ]]; then ln -s "$docker_dir/.docker.env" "$docker_dkswarm/$1/.env"; fi # symlinks .docker.env to .env
+        docker compose -f "$docker_dkswarm/$1/compose.yml" up -d --remove-orphans;
+    else echo "No swarm configuration file found for the \`$1\` application."; echo;
+    fi
+    echo
+    }
+alias dwu="docker_swarm_start"
+
+docker_swarm_stop(){
+    if [[ -f "$docker_dkswarm/$1/compose.yml" && -f "$docker_dkswarm/$1/.env" ]]
+    then docker compose -f "$docker_dkswarm/$1/compose.yml" down;
+    else docker stop "$1" && docker container rm "$1"
+    fi
+    echo
+    }
+alias dwd="docker_swarm_stop"
+
+docker_swarm_bounce(){ docker_swarm_stop "$1" && docker_swarm_start "$1" ; }
+alias dwb="docker_swarm_bounce"
+
+################################################################################
+
+echo -e "\n>> docker terminal aliases and functions created <<\n";
