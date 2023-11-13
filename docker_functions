@@ -31,11 +31,9 @@ export docker_dkswarm="$docker_dir/dkswarm"
 # export docker_swarm="$docker_dir/swarm"
 
 ## docker function variables
-export docker_usr="docker"
-export docker_grp="docker"
-docker_uid=$(id -u "$docker_usr") # docker UID (1001)
+docker_uid=$(id -u "$docker_usr") # docker UID (1000)
 export docker_uid
-docker_gid=$(id -g "$docker_usr") # docker GID (994)
+docker_gid=$(id -g "$docker_usr") # docker GID (1000)
 export docker_gid
 
 # folder and file permissions
@@ -102,7 +100,7 @@ docker_file_permissions(){
 docker_folder_permissions(){
     case "${1}" in
     "-a"|"--all") # update file and folder permissions for all containers
-        ${var_sudo}chown -R "${docker_uid:-1000}:${docker_gid:-1000}" "${docker_dir:?}";
+        ${var_sudo}chown -R "${docker_uid}:${docker_gid}" "${docker_dir:?}";
         ${var_sudo}chmod -R $perms_data "${docker_appdata:?}"; # -rwXrwX---
         ${var_sudo}chmod -R $perms_conf "${docker_compose:?}"; # -rwXrwXr-X
         ${var_sudo}chmod -R $perms_conf "${docker_dkswarm:?}"; # -rwXrwXr-X
@@ -119,7 +117,7 @@ docker_folder_permissions(){
                     "$docker_compose"|"$docker_dkswarm") dir_perms="a-x,ug+rwX,o=rX";;
                     "$docker_secrets") dir_perms="a-x,u+rwX,g=rX,o=";;
                 esac
-                ${var_sudo}chown -R "${var_uid:-1000}:${var_gid:-1000}" "$dir/$1";
+                ${var_sudo}chown -R "${var_uid}:${var_gid}" "$dir/$1";
                 ${var_sudo}chmod -R "$dir_perms" "$dir/$1";
                 docker_file_permissions "$1";
                 };
