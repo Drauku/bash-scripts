@@ -1,20 +1,26 @@
 #!/bin/bash
+#set -euo pipefail # strict mode http://redsymbol.net/articles/unofficial-bash-strict-mode/
 ################################################################################
 ######### --> **** UPDATE THESE VARIABLES FOR YOUR ENVIRONMENT **** <-- ########
 
-export docker_usr="docker"
-export docker_grp="docker"
-export docker_dir="$HOME/docker"
+    export docker_usr="docker" ## default is `docker`
+    export docker_grp="docker" ## default is `docker`
+    export docker_dir="$HOME/docker" ## default is `$HOME/docker`
+
+    export net_prefix_docker_socket="172.27.0" ## DO NOT include the 4th octet
+    export net_prefix_external_edge="172.27.1" ## DO NOT include the 4th octet
+    export net_prefix_reverse_proxy="172.27.2" ## DO NOT include the 4th octet
+    export net_prefix_internal_only="172.27.3" ## DO NOT include the 4th octet
+    export net_prefix_ingress="10.27.0" ## DO NOT include the 4th octet
 
 ################################################################################
 ##################### NOTHING BELOW HERE SHOULD BE CHANGED #####################
 ################################################################################
 
-################################################################################
 ####################### docker uid/gid/directories setup #######################
 
-# alias to easily source this file
-alias dkfnc='. $ln_source'
+    ## alias to easily source this file
+    alias dkfnc='. $HOME/.docker_fnc'
 
 # docker directory structure
 export docker_appdata="$docker_dir/appdata"
@@ -249,7 +255,28 @@ docker_folder_actions(){
     esac;
     }
 
-################################################################################
+    fnc_network_check(){ docker network ls -q --filter name="$1"; }
+    docker_networks_create(){
+        ## $1 is scope, $2 is driver
+        case "$1" in
+            ("local")
+                if [[ "$(fnc_network_check "docker_gwbridge")" ]]; then docker network rm "docker_gwbridge"; fi;
+                ;;
+            ("swarm")
+                if [[ "$(fnc_network_check "ingress")" ]]; then docker network rm ingress; fi;
+                docker network create --ingress --opt encrypted --driver overlay --subnet "${net_prefix_ingress}.0/16" --gateway "${net_prefix_ingress}.254" "ingress";
+                ;;
+            (*)
+                msg_error "INVALID NETWORK SCOPE"; return;
+                ;;
+        esac
+        docker network create --opt "encrypted" --scope "local" --driver "bridge" --subnet "${net_prefix_docker_socket}.0/24" --gateway "${net_prefix_docker_socket}.254" --attachable "docker_socket"
+        docker network create --opt "encrypted" --scope "$1" --driver "$2" --subnet "${net_prefix_external_edge}.0/24" --gateway "${net_prefix_external_edge}.254" --attachable "external_edge"
+        docker network create --opt "encrypted" --scope "$1" --driver "$2" --subnet "${net_prefix_reverse_proxy}.0/24" --gateway "${net_prefix_reverse_proxy}.254" --attachable "reverse_proxy"
+        # docker network create --opt "encrypted" --scope "swarm" --driver "overlay" --subnet "172.27.20.0/24" --gateway "172.27.20.254" --attachable "reverse_proxy"
+        echo "The \`docker_socket\`, \`external_edge\`, and \`reverse_proxy\` docker networks already exist or were created."; echo
+        }
+
 ########################### docker compose functions ###########################
 
 docker_list_containers(){
