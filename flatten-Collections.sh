@@ -2,23 +2,49 @@
 
 # Usage function
 usage() {
-    echo "Usage: $0 <source_directory_path> [target_directory_path]"
+    echo "Usage: $0 <source_directory_path> [target_directory_path] [--dry-run]"
     echo "This script will find all subdirectories ending with 'Collection' in the source directory"
     echo "and move all their subdirectories to either the source directory or the specified target directory."
+    echo ""
+    echo "Options:"
+    echo "  --dry-run    Show what would be moved without performing actual operations"
     exit 1
 }
 
+# Initialize variables
+SOURCE_DIR=""
+TARGET_DIR=""
+DRY_RUN=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            if [ -z "$SOURCE_DIR" ]; then
+                SOURCE_DIR="$1"
+            elif [ -z "$TARGET_DIR" ]; then
+                TARGET_DIR="$1"
+            else
+                echo "Error: Too many arguments provided"
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
 # Check if source directory path is provided
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+if [ -z "$SOURCE_DIR" ]; then
+    echo "Error: No source directory provided"
     usage
 fi
 
-SOURCE_DIR="$1"
-
 # Set target directory - either the provided target or same as source
-if [ "$#" -eq 2 ]; then
-    TARGET_DIR="$2"
-else
+if [ -z "$TARGET_DIR" ]; then
     TARGET_DIR="$SOURCE_DIR"
 fi
 
@@ -39,6 +65,10 @@ TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
 echo "Source directory: $SOURCE_DIR"
 echo "Target directory: $TARGET_DIR"
+if [ "$DRY_RUN" = true ]; then
+    echo "DRY RUN MODE: No files will be moved"
+    echo "============================================"
+fi
 
 # Change to the source directory
 cd "$SOURCE_DIR" || exit 1
@@ -50,25 +80,35 @@ find . -type d -maxdepth 1 -name "*Collection" | while read -r collection_dir; d
     # Find all subdirectories within the collection directory
     find "$collection_dir" -mindepth 1 -maxdepth 1 -type d | while read -r subdir; do
         subdir_name=$(basename "$subdir")
-        echo "  Moving: $subdir_name from $collection_dir to $TARGET_DIR"
 
         # Check if a directory with the same name already exists in the target directory
         if [ -d "$TARGET_DIR/$subdir_name" ]; then
-            echo "  Warning: Directory '$subdir_name' already exists in the target directory. Skipping."
+            echo "  WARNING: Directory '$subdir_name' already exists in the target directory. Would be skipped."
         else
-            # Move the subdirectory to the target directory
-            mv "$subdir" "$TARGET_DIR/"
+            # Display the move operation
+            echo "  MOVE: '$subdir' → '$TARGET_DIR/$subdir_name'"
 
-            # Check if move was successful
-            if [ $? -eq 0 ]; then
-                echo "  Successfully moved: $subdir_name"
-            else
-                echo "  Error moving: $subdir_name"
+            # Perform the move if not in dry run mode
+            if [ "$DRY_RUN" = false ]; then
+                mv "$subdir" "$TARGET_DIR/"
+
+                # Check if move was successful
+                if [ $? -eq 0 ]; then
+                    echo "  Successfully moved: $subdir_name"
+                else
+                    echo "  Error moving: $subdir_name"
+                fi
             fi
         fi
     done
 
     echo "Completed processing: $collection_dir"
+    echo "------------------------------------------"
 done
 
-echo "Script execution completed"
+if [ "$DRY_RUN" = true ]; then
+    echo "============================================"
+    echo "DRY RUN COMPLETE: No files were moved"
+else
+    echo "Script execution completed"
+fi
