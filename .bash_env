@@ -1,0 +1,12 @@
+####################### color codes #######################
+red=$'\033[38;2;255;000;000m'; export red
+orn=$'\033[38;2;255;075;075m'; export orn
+ylw=$'\033[38;2;255;255;000m'; export ylw
+grn=$'\033[38;2;000;170;000m'; export grn
+cyn=$'\033[38;2;085;255;255m'; export cyn
+blu=$'\033[38;2;000;120;255m'; export blu
+prp=$'\033[38;2;085;085;255m'; export prp
+mgn=$'\033[38;2;255;085;255m'; export mgn
+wht=$'\033[38;2;255;255;255m'; export wht
+blk=$'\033[38;2;025;025;025m'; export blk
+def=$'\033[m'; export def
