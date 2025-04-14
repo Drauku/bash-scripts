@@ -268,36 +268,34 @@ main() {
         return 1
     fi
 
-    # Check for sufficient disk space in target directory
-    # Use df with no-sync option for faster execution on network filesystems
-    if ! $FORCE; then
-        local SOURCE_SIZE
-        local TARGET_AVAIL
-        SOURCE_SIZE=$(du -s "$SOURCE_DIR" | awk '{print $1}')
-        TARGET_AVAIL=$(df --no-sync -k "$TARGET_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    # Always check disk space for information purposes (regardless of FORCE flag)
+    local SOURCE_SIZE
+    local TARGET_AVAIL
+    SOURCE_SIZE=$(du -s "$SOURCE_DIR" | awk '{print $1}')
+    TARGET_AVAIL=$(df --no-sync -k "$TARGET_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
 
-        # If df with --no-sync fails, try without it (for BSD-based systems like TrueNAS)
-        if [ $? -ne 0 ]; then
-            TARGET_AVAIL=$(df -k "$TARGET_DIR" | awk 'NR==2 {print $4}')
-        fi
+    # If df with --no-sync fails, try without it (for BSD-based systems like TrueNAS)
+    if [ $? -ne 0 ]; then
+        TARGET_AVAIL=$(df -k "$TARGET_DIR" | awk 'NR==2 {print $4}')
+    fi
 
-        if [ "$TARGET_AVAIL" -lt "$SOURCE_SIZE" ]; then
-            log "WARNING" "Target directory may not have enough available space"
-            log "WARNING" "Source size: $(($SOURCE_SIZE / 1024)) MB, Target available: $(($TARGET_AVAIL / 1024)) MB"
+    if [ "$TARGET_AVAIL" -lt "$SOURCE_SIZE" ]; then
+        log "WARNING" "Target directory may not have enough available space"
+        log "WARNING" "Source size: $(($SOURCE_SIZE / 1024)) MB, Target available: $(($TARGET_AVAIL / 1024)) MB"
 
-            if [ "$DRY_RUN" = false ]; then
-                if [ "$FORCE" = false ]; then
-                    read -p "Continue anyway? (y/n): " -n 1 -r
-                    echo
-                    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                        log "NORMAL" "Operation cancelled by user"
-                        return 1
-                    fi
-                else
-                    log "WARNING" "Continuing despite space concerns (force mode enabled)"
-                fi
+        # Only prompt if we're going to actually perform operations (not dry run)
+        # and user hasn't explicitly forced operations
+        if [ "$DRY_RUN" = false ] && [ "$FORCE" = false ]; then
+            read -p "Continue anyway? (y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "NORMAL" "Operation cancelled by user"
+                return 1
             fi
+        elif [ "$DRY_RUN" = false ] && [ "$FORCE" = true ]; then
+            log "WARNING" "Continuing despite space concerns (force mode enabled)"
         fi
+        # If it's a dry run, just show the warning but don't prompt or proceed with operations
     fi
 
     # Convert to absolute paths (handle symbolic links properly)
