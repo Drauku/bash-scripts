@@ -3,23 +3,61 @@
 # Exit on error, undefined variable, and error in piped commands
 set -euo pipefail
 
+# Version
+VERSION="1.0.0"
+
 # Usage function
 usage() {
-    echo "Usage: $0 [-d] [-h] source_directory [target_directory]"
+    echo "Collection Directory Reorganizer v${VERSION}"
+    echo ""
+    echo "Usage: $0 [-d] [-h] [-v] [-f] source_directory [target_directory]"
     echo "This script will find all subdirectories ending with 'Collection' in the source directory"
     echo "and move all their subdirectories to either the source directory or the specified target directory."
     echo ""
     echo "Options:"
     echo "  -d, --dry-run    Show what would be moved without performing actual operations"
+    echo "  -f, --force      Skip all prompts and force operations"
+    echo "  -v, --verbose    Enable verbose output"
     echo "  -h, --help       Display this help message and exit"
+    echo ""
+    echo "Compatible with TrueNAS Scale and Unraid OS"
     exit 1
+}
+
+# Function to log messages
+log() {
+    local level="$1"
+    local message="$2"
+
+    case "$level" in
+        "INFO")
+            if [ "$VERBOSE" = true ]; then
+                echo "[INFO] $message"
+            fi
+            ;;
+        "WARNING")
+            echo "[WARNING] $message" >&2
+            ;;
+        "ERROR")
+            echo "[ERROR] $message" >&2
+            ;;
+        *)
+            echo "$message"
+            ;;
+    esac
 }
 
 # Function to clean up on exit or error
 cleanup() {
     # Return to original directory
     cd "$ORIGINAL_DIR" 2>/dev/null || true
-    echo "Script exited ${1:-normally}"
+    log "INFO" "Script exited ${1:-normally}"
+}
+
+# Check for command presence
+check_command() {
+    command -v "$1" >/dev/null 2>&1 || { log "ERROR" "Required command '$1' not found. Please install it."; return 1; }
+    return 0
 }
 
 # Function to process collection directories
@@ -32,35 +70,35 @@ process_collections() {
     local errors=0
     local collections_found=false
 
-    # Find all directories ending with "Collection"
+    # Use find with appropriate options (-L to follow symbolic links)
     local collections
-    collections=$(find . -type d -maxdepth 1 -name "*Collection" | sort)
+    collections=$(find -L . -maxdepth 1 -type d -name "*Collection" | sort)
 
     # Check if any collections were found
     if [ -z "$collections" ]; then
-        echo "No directories ending with 'Collection' found in $source_dir"
+        log "WARNING" "No directories ending with 'Collection' found in $source_dir"
         return 0
     fi
 
     # Process each collection
     echo "$collections" | while IFS= read -r collection_dir; do
         collections_found=true
-        echo "Processing: $collection_dir"
+        log "NORMAL" "Processing: $collection_dir"
 
         # Check if collection directory is readable
         if [ ! -r "$collection_dir" ]; then
-            echo "  Error: Cannot read collection directory '$collection_dir' (permission denied)"
+            log "ERROR" "Cannot read collection directory '$collection_dir' (permission denied)"
             errors=$((errors + 1))
             continue
         fi
 
         # Find all subdirectories within the collection directory
         local subdirs
-        subdirs=$(find "$collection_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+        subdirs=$(find -L "$collection_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
 
         # Check if any subdirectories were found
         if [ -z "$subdirs" ]; then
-            echo "  No subdirectories found in $collection_dir"
+            log "INFO" "No subdirectories found in $collection_dir"
             continue
         fi
 
@@ -69,29 +107,36 @@ process_collections() {
             subdir_name=$(basename "$subdir")
 
             # Check if a directory with the same name already exists in the target directory
-            if [ -d "$target_dir/$subdir_name" ]; then
-                echo "  WARNING: Directory '$subdir_name' already exists in the target directory. Skipping."
+            if [ -d "$target_dir/$subdir_name" ] || [ -L "$target_dir/$subdir_name" ]; then
+                log "WARNING" "Directory or symlink '$subdir_name' already exists in the target directory. Skipping."
                 dirs_skipped=$((dirs_skipped + 1))
                 continue
             fi
 
             # Check if source directory is readable
             if [ ! -r "$subdir" ]; then
-                echo "  Error: Cannot read source '$subdir' (permission denied)"
+                log "ERROR" "Cannot read source '$subdir' (permission denied)"
                 errors=$((errors + 1))
                 continue
             fi
 
             # Display the move operation
-            echo "  MOVE: '$subdir' → '$target_dir/$subdir_name'"
+            log "NORMAL" "MOVE: '$subdir' → '$target_dir/$subdir_name'"
 
             # Perform the move if not in dry run mode
             if [ "$dry_run" = false ]; then
-                if mv "$subdir" "$target_dir/" 2>/dev/null; then
-                    echo "  Successfully moved: $subdir_name"
+                # Use cp followed by rm for cross-filesystem compatibility
+                if [ "$VERBOSE" = true ]; then
+                    cp -a "$subdir" "$target_dir/" && rm -rf "$subdir"
+                else
+                    cp -a "$subdir" "$target_dir/" 2>/dev/null && rm -rf "$subdir" 2>/dev/null
+                fi
+
+                if [ -d "$target_dir/$subdir_name" ]; then
+                    log "NORMAL" "Successfully moved: $subdir_name"
                     dirs_moved=$((dirs_moved + 1))
                 else
-                    echo "  Error moving: $subdir_name"
+                    log "ERROR" "Error moving: $subdir_name"
                     errors=$((errors + 1))
                 fi
             else
@@ -99,32 +144,32 @@ process_collections() {
             fi
         done
 
-        echo "Completed processing: $collection_dir"
+        log "NORMAL" "Completed processing: $collection_dir"
         echo "------------------------------------------"
     done
 
     # Show summary
     if [ "$dry_run" = true ]; then
         echo "============================================"
-        echo "DRY RUN COMPLETE: No files were moved"
-        echo "Would move: $dirs_moved directories"
-        echo "Would skip: $dirs_skipped directories"
+        log "NORMAL" "DRY RUN COMPLETE: No files were moved"
+        log "NORMAL" "Would move: $dirs_moved directories"
+        log "NORMAL" "Would skip: $dirs_skipped directories"
         if [ $errors -gt 0 ]; then
-            echo "Potential errors: $errors"
+            log "WARNING" "Potential errors: $errors"
         fi
     else
-        echo "Script execution completed"
-        echo "Directories moved: $dirs_moved"
-        echo "Directories skipped: $dirs_skipped"
+        log "NORMAL" "Script execution completed"
+        log "NORMAL" "Directories moved: $dirs_moved"
+        log "NORMAL" "Directories skipped: $dirs_skipped"
         if [ $errors -gt 0 ]; then
-            echo "Errors encountered: $errors"
+            log "ERROR" "Errors encountered: $errors"
             return 1
         fi
     fi
 
     # Verify at least one collection directory was found
     if [ "$collections_found" = false ]; then
-        echo "Warning: No 'Collection' directories were processed"
+        log "WARNING" "No 'Collection' directories were processed"
     fi
 
     return 0
@@ -135,12 +180,25 @@ main() {
     local SOURCE_DIR=""
     local TARGET_DIR=""
     local DRY_RUN=false
+    local FORCE=false
+    VERBOSE=false
+
+    # Check for required commands
+    check_command "find" || return 1
+    check_command "cp" || return 1
+    check_command "rm" || return 1
 
     # Parse options using getopts
-    while getopts ":dh-:" opt; do
+    while getopts ":dfvh-:" opt; do
         case ${opt} in
             d)
                 DRY_RUN=true
+                ;;
+            f)
+                FORCE=true
+                ;;
+            v)
+                VERBOSE=true
                 ;;
             h)
                 usage
@@ -150,21 +208,27 @@ main() {
                     dry-run)
                         DRY_RUN=true
                         ;;
+                    force)
+                        FORCE=true
+                        ;;
+                    verbose)
+                        VERBOSE=true
+                        ;;
                     help)
                         usage
                         ;;
                     *)
-                        echo "Invalid option: --${OPTARG}" >&2
+                        log "ERROR" "Invalid option: --${OPTARG}"
                         usage
                         ;;
                 esac
                 ;;
             \?)
-                echo "Invalid option: -$OPTARG" >&2
+                log "ERROR" "Invalid option: -$OPTARG"
                 usage
                 ;;
             :)
-                echo "Option -$OPTARG requires an argument." >&2
+                log "ERROR" "Option -$OPTARG requires an argument."
                 usage
                 ;;
         esac
@@ -173,10 +237,10 @@ main() {
 
     # Get source and target directories
     if [ $# -lt 1 ]; then
-        echo "Error: No source directory provided" >&2
+        log "ERROR" "No source directory provided"
         usage
     elif [ $# -gt 2 ]; then
-        echo "Error: Too many arguments provided" >&2
+        log "ERROR" "Too many arguments provided"
         usage
     fi
 
@@ -187,58 +251,83 @@ main() {
         TARGET_DIR="$SOURCE_DIR"
     fi
 
-    # Check if the provided paths exist and are directories
-    if [ ! -d "$SOURCE_DIR" ]; then
-        echo "Error: Source directory '$SOURCE_DIR' is not a valid directory" >&2
+    # Check if the provided paths exist and are directories or symbolic links to directories
+    if [ ! -d "$SOURCE_DIR" ] && [ ! -L "$SOURCE_DIR" ]; then
+        log "ERROR" "Source directory '$SOURCE_DIR' is not a valid directory"
         return 1
     fi
 
-    if [ ! -d "$TARGET_DIR" ]; then
-        echo "Error: Target directory '$TARGET_DIR' is not a valid directory" >&2
+    if [ ! -d "$TARGET_DIR" ] && [ ! -L "$TARGET_DIR" ]; then
+        log "ERROR" "Target directory '$TARGET_DIR' is not a valid directory"
         return 1
     fi
 
     # Check if user has write permissions to target directory
     if [ ! -w "$TARGET_DIR" ]; then
-        echo "Error: No write permission to target directory '$TARGET_DIR'" >&2
+        log "ERROR" "No write permission to target directory '$TARGET_DIR'"
         return 1
     fi
 
     # Check for sufficient disk space in target directory
-    local SOURCE_SIZE
-    local TARGET_AVAIL
-    SOURCE_SIZE=$(du -s "$SOURCE_DIR" | awk '{print $1}')
-    TARGET_AVAIL=$(df -k "$TARGET_DIR" | awk 'NR==2 {print $4}')
+    # Use df with no-sync option for faster execution on network filesystems
+    if ! $FORCE; then
+        local SOURCE_SIZE
+        local TARGET_AVAIL
+        SOURCE_SIZE=$(du -s "$SOURCE_DIR" | awk '{print $1}')
+        TARGET_AVAIL=$(df --no-sync -k "$TARGET_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
 
-    if [ "$TARGET_AVAIL" -lt "$SOURCE_SIZE" ]; then
-        echo "Warning: Target directory may not have enough available space" >&2
-        echo "Source size: $(($SOURCE_SIZE / 1024)) MB, Target available: $(($TARGET_AVAIL / 1024)) MB" >&2
+        # If df with --no-sync fails, try without it (for BSD-based systems like TrueNAS)
+        if [ $? -ne 0 ]; then
+            TARGET_AVAIL=$(df -k "$TARGET_DIR" | awk 'NR==2 {print $4}')
+        fi
 
-        if [ "$DRY_RUN" = false ]; then
-            read -p "Continue anyway? (y/n): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                echo "Operation cancelled by user" >&2
-                return 1
+        if [ "$TARGET_AVAIL" -lt "$SOURCE_SIZE" ]; then
+            log "WARNING" "Target directory may not have enough available space"
+            log "WARNING" "Source size: $(($SOURCE_SIZE / 1024)) MB, Target available: $(($TARGET_AVAIL / 1024)) MB"
+
+            if [ "$DRY_RUN" = false ]; then
+                if [ "$FORCE" = false ]; then
+                    read -p "Continue anyway? (y/n): " -n 1 -r
+                    echo
+                    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                        log "NORMAL" "Operation cancelled by user"
+                        return 1
+                    fi
+                else
+                    log "WARNING" "Continuing despite space concerns (force mode enabled)"
+                fi
             fi
         fi
     fi
 
-    # Convert to absolute paths
-    SOURCE_DIR=$(cd "$SOURCE_DIR" && pwd)
-    TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
+    # Convert to absolute paths (handle symbolic links properly)
+    SOURCE_DIR=$(cd -P "$(readlink -f "$SOURCE_DIR")" && pwd)
+    TARGET_DIR=$(cd -P "$(readlink -f "$TARGET_DIR")" && pwd)
 
     # Check if source and target are the same directory
     if [ "$SOURCE_DIR" = "$TARGET_DIR" ]; then
-        echo "Source and target directories are the same: $SOURCE_DIR"
+        log "NORMAL" "Source and target directories are the same: $SOURCE_DIR"
     else
-        echo "Source directory: $SOURCE_DIR"
-        echo "Target directory: $TARGET_DIR"
+        log "NORMAL" "Source directory: $SOURCE_DIR"
+        log "NORMAL" "Target directory: $TARGET_DIR"
     fi
 
     if [ "$DRY_RUN" = true ]; then
-        echo "DRY RUN MODE: No files will be moved"
+        log "NORMAL" "DRY RUN MODE: No files will be moved"
         echo "============================================"
+    fi
+
+    # Verify we can handle potential filesystem-specific issues
+    if [ "$SOURCE_DIR" != "$TARGET_DIR" ] && [ "$DRY_RUN" = false ]; then
+        # Check if source and target are on different filesystems
+        local SOURCE_FS
+        local TARGET_FS
+        SOURCE_FS=$(df -P "$SOURCE_DIR" | awk 'NR==2 {print $1}')
+        TARGET_FS=$(df -P "$TARGET_DIR" | awk 'NR==2 {print $1}')
+
+        if [ "$SOURCE_FS" != "$TARGET_FS" ]; then
+            log "INFO" "Source and target are on different filesystems. Using cp+rm instead of mv."
+        fi
     fi
 
     # Change to the source directory
@@ -255,6 +344,9 @@ ORIGINAL_DIR=$(pwd)
 # Set up trap for clean exit
 trap 'cleanup $?' EXIT
 trap 'cleanup "with an error"' ERR
+
+# Make VERBOSE a global variable
+VERBOSE=false
 
 # Execute main function
 main "$@"
