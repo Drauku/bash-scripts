@@ -9,11 +9,11 @@
 #   directory. This effectively flattens nested directory structures.
 #
 # Author: Drauku
-# Version: 1.0.0
+# Version: 1.0.1
 # License: MIT
 #
 # Usage:
-#   ./flatten_Collections.sh [-d] [-f] [-v] [-h] source_directory [target_directory]
+#   ./flatten_Collections.sh [-d] [-f] [-v] [-p pattern] [-h] source_directory [target_directory]
 #
 # Examples:
 #   # Move subdirectories to the same parent directory
@@ -22,11 +22,14 @@
 #   # Move subdirectories to a different target directory
 #   ./flatten_Collections.sh /path/to/source /path/to/destination
 #
+#   # Use a custom pattern instead of the default "Collection"
+#   ./flatten_Collections.sh -p "Series" /path/to/media/library
+#
 #   # Preview what would be moved without making changes
 #   ./flatten_Collections.sh -d /path/to/media/library
 #
 #   # Run with verbose output and skip all confirmations
-#   ./flatten_Collections.sh -v -f /path/to/media/library
+#   ./flatten_Collections.sh -v -f -p "Movies" /path/to/media/library
 #
 # Options:
 #   -d, --dry-run    Show what would be moved without performing actual operations
@@ -91,6 +94,7 @@ usage() {
     echo "Options:"
     echo "  -d, --dry-run    Show what would be moved without performing actual operations"
     echo "  -f, --force      Skip all confirmations and force operations"
+    echo "  -p, --pattern    Specify a custom pattern to search for"
     echo "  -v, --verbose    Enable verbose output"
     echo "  -h, --help       Display this help message and exit"
     echo ""
@@ -230,11 +234,11 @@ process_collections() {
     # Use find with appropriate options (-L to follow symbolic links)
     # Get only immediate subdirectories ending with "Collection"
     local collections
-    collections=$(find -L . -maxdepth 1 -type d -name "*Collection" | sort)
+    collections=$(find -L . -maxdepth 1 -type d -name "*$pattern" | sort)
 
     # Check if any collections were found
     if [ -z "$collections" ]; then
-        log "WARNING" "No directories ending with 'Collection' found in $source_dir"
+        log "WARNING" "No directories ending with '$pattern' found in $source_dir"
         return 0
     fi
 
@@ -326,7 +330,7 @@ process_collections() {
 
     # Verify at least one collection directory was found
     if [ "$collections_found" = false ]; then
-        log "WARNING" "No 'Collection' directories were processed"
+        log "WARNING" "No '$pattern' directories were processed"
     fi
 
     return 0
@@ -346,13 +350,16 @@ main() {
     check_command "rm" || return 1
 
     # Parse options using getopts
-    while getopts ":dfvh-:" opt; do
+    while getopts ":dfpvh-:" opt; do
         case ${opt} in
             d)
                 dry_run=true
                 ;;
             f)
                 force=true
+                ;;
+            p)
+                pattern="$OPTARG"
                 ;;
             v)
                 VERBOSE=true
@@ -367,6 +374,9 @@ main() {
                         ;;
                     force)
                         force=true
+                        ;;
+                    pattern)
+                        pattern="$OPTARG"
                         ;;
                     verbose)
                         VERBOSE=true
