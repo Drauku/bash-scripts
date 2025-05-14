@@ -110,22 +110,36 @@ log() {
     local message="$2"
 
     case "$level" in
+        "ERROR")
+            echo "[${red:?}ERROR${def:?}] $message" >&2
+            ;;
+        "DEBUG")
+            if [ "$VERBOSE" = true ]; then
+                echo "[${blu:?}DEBUG${def:?}] $message"
+            fi
+            ;;
+        "FAILURE")
+            echo "[${red:?}FAILURE${def:?}] $message" >&2
+            ;;
         "INFO")
             if [ "$VERBOSE" = true ]; then
                 echo "[${cyn:?}INFO${def:?}] $message"
             fi
             ;;
+        "SUCCESS")
+            echo "[${grn:?}SUCCESS${def:?}] $message"
+            ;;
         "WARNING")
             echo "[${ylw:?}WARNING${def:?}] $message" >&2
-            ;;
-        "ERROR")
-            echo "[${red:?}ERROR${def:?}] $message" >&2
             ;;
         *)
             echo "$message"
             ;;
     esac
 }
+
+# set up trap for clean exit
+trap 'log "ERROR" "Script exited with an error"; exit 1' ERR
 
 # Perform cleanup on exit
 cleanup() {
@@ -245,7 +259,7 @@ process_collections() {
     # Process each collection
     echo "$collections" | while IFS= read -r collection_dir; do
         collections_found=true
-        log "NORMAL" "Processing: $collection_dir"
+        log "INFO" "Processing: $collection_dir"
 
         # Check if collection directory is readable
         if [ ! -r "$collection_dir" ]; then
@@ -283,14 +297,14 @@ process_collections() {
             fi
 
             # Display the move operation
-            log "NORMAL" "MOVE: '$subdir' → '$target_dir/$subdir_name'"
+            # log "NORMAL" "MOVE: '$subdir' → '$target_dir/$subdir_name'"
 
             # Perform the move if not in dry run mode
             if [ "$dry_run" = false ]; then
                 # Use cp followed by rm for cross-filesystem compatibility
                 if cp -a "$subdir" "$target_dir/" 2>/dev/null; then
                     if rm -rf "$subdir" 2>/dev/null; then
-                        log "NORMAL" "Successfully moved: $subdir_name"
+                        log "SUCCESS" "Successfully moved: '$subdir_name' → '$target_dir/$subdir_name'"
                         dirs_moved=$((dirs_moved + 1))
                     else
                         log "WARNING" "Copied '$subdir_name' to target but failed to remove source"
@@ -305,7 +319,7 @@ process_collections() {
             fi
         done
 
-        log "NORMAL" "Completed processing: $collection_dir"
+        log "INFO" "Completed processing: $collection_dir"
         echo "------------------------------------------"
     done
 
