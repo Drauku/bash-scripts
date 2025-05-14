@@ -1,0 +1,10 @@
+http:
+  routers:
+    dashboard:
+      rule: "Host(\`traefik.$domain\`)"
+      service: api@internal
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - authentik@docker
